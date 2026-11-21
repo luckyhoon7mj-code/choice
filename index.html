@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>점심 메뉴 룰렛</title>
+    <!-- Tailwind CSS를 불러옵니다 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 캔버스 회전 애니메이션을 위한 스타일 */
+        .spinning {
+            transition: transform 4s cubic-bezier(0.1, 0.7, 0.1, 1);
+        }
+        /* 사용자 지정 모달 부드러운 전환 */
+        #messageModal {
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50 p-4 sm:p-8 flex flex-col items-center font-sans text-gray-800">
+
+    <div class="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden">
+        
+        <!-- 헤더 부분 -->
+        <div class="bg-blue-500 p-6 text-center text-white">
+            <h1 class="text-3xl font-bold mb-2">점심 메뉴 룰렛</h1>
+            <p class="text-blue-100">오늘의 점심은 과연 무엇일까요?</p>
+        </div>
+
+        <div class="p-6">
+            <!-- 룰렛 영역 -->
+            <div class="relative flex justify-center mb-8">
+                <!-- 룰렛 포인터 (화살표) -->
+                <div class="absolute top-0 z-10 -mt-2">
+                    <div class="w-0 h-0 border-l-[15px] border-r-[15px] border-t-[25px] border-l-transparent border-r-transparent border-t-red-500"></div>
+                </div>
+                
+                <!-- 캔버스 (룰렛 판) -->
+                <canvas id="rouletteCanvas" width="300" height="300" class="rounded-full shadow-md"></canvas>
+            </div>
+
+            <!-- 결과 표시 영역 -->
+            <div id="resultArea" class="text-center mb-6 h-16 flex items-center justify-center">
+                <div class="text-gray-500 text-lg">가운데 돌리기 버튼을 눌러주세요</div>
+            </div>
+
+            <!-- 돌리기 버튼 -->
+            <button id="spinBtn" class="w-full py-4 rounded-xl text-xl font-bold text-white shadow-lg transition-all bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98]">
+                룰렛 돌리기!
+            </button>
+
+            <!-- 메뉴 입력 폼 -->
+            <form id="addForm" class="mt-8 flex gap-2">
+                <input type="text" id="itemInput" placeholder="새로운 메뉴 입력" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="submit" id="addBtn" class="px-6 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors disabled:bg-gray-400">
+                    추가
+                </button>
+            </form>
+
+            <!-- 메뉴 리스트 -->
+            <div class="mt-6">
+                <h3 class="text-sm font-semibold text-gray-500 mb-3">현재 등록된 메뉴 (<span id="itemCount">0</span>개)</h3>
+                <div id="itemList" class="flex flex-wrap gap-2">
+                    <!-- 아이템들이 여기에 추가됩니다 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 알림 메시지 모달 (alert 대체용) -->
+    <div id="messageModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-2xl text-center transform scale-95 transition-transform duration-300" id="modalContent">
+            <div class="text-red-500 text-4xl mb-4">⚠️</div>
+            <p id="modalText" class="text-lg font-medium mb-6 text-gray-800">메시지</p>
+            <button id="closeModalBtn" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium">확인</button>
+        </div>
+    </div>
+
+    <script>
+        // 상태 변수 설정
+        let items = ['짜장면', '돈까스', '햄버거', '마라탕', '제육볶음'];
+        let rotation = 0;
+        let isSpinning = false;
+        const colors = [
+            '#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF',
+            '#D0BAFF', '#FFBAF3', '#FFC9DE', '#E2F0CB', '#FFD1DC'
+        ];
+
+        // DOM 요소 가져오기
+        const canvas = document.getElementById('rouletteCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinBtn = document.getElementById('spinBtn');
+        const addForm = document.getElementById('addForm');
+        const itemInput = document.getElementById('itemInput');
+        const addBtn = document.getElementById('addBtn');
+        const itemList = document.getElementById('itemList');
+        const itemCountSpan = document.getElementById('itemCount');
+        const resultArea = document.getElementById('resultArea');
+        
+        // 모달 요소
+        const messageModal = document.getElementById('messageModal');
+        const modalText = document.getElementById('modalText');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalContent = document.getElementById('modalContent');
+
+        // 메시지 표시 함수
+        function showMessage(text) {
+            modalText.textContent = text;
+            messageModal.classList.remove('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-95');
+            modalContent.classList.add('scale-100');
+        }
+
+        // 메시지 닫기 함수
+        function closeMessage() {
+            messageModal.classList.add('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-100');
+            modalContent.classList.add('scale-95');
+        }
+
+        closeModalBtn.addEventListener('click', closeMessage);
+
+        // 룰렛 그리기 함수
+        function drawRoulette() {
+            const width = canvas.width;
+            const height = canvas.height;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(centerX, centerY) - 10;
+
+            ctx.clearRect(0, 0, width, height);
+
+            // 메뉴가 없을 때
+            if (items.length === 0) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#333';
+                ctx.font = '20px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('메뉴를 추가해주세요', centerX, centerY);
+                return;
+            }
+
+            const sliceAngle = (2 * Math.PI) / items.length;
+
+            // 각 메뉴 칸 그리기
+            items.forEach((item, index) => {
+                const startAngle = index * sliceAngle - Math.PI / 2; // 12시 방향부터 시작
+                const endAngle = startAngle + sliceAngle;
+
+                // 조각 그리기
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+                ctx.closePath();
+
+                ctx.fillStyle = colors[index % colors.length];
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#fff';
+                ctx.stroke();
+
+                // 텍스트 그리기
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(startAngle + sliceAngle / 2);
+                ctx.textAlign = 'right';
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 18px sans-serif';
+                ctx.fillText(item, radius - 20, 5);
+                ctx.restore();
+            });
+        }
+
+        // 아이템 목록 화면 업데이트 함수
+        function renderItems() {
+            itemList.innerHTML = '';
+            itemCountSpan.textContent = items.length;
+
+            if (items.length === 0) {
+                itemList.innerHTML = '<p class="text-sm text-gray-400 w-full">메뉴를 추가해야 룰렛을 돌릴 수 있습니다.</p>';
+                spinBtn.disabled = true;
+                spinBtn.className = 'w-full py-4 rounded-xl text-xl font-bold text-white shadow-lg transition-all bg-gray-400 cursor-not-allowed';
+            } else {
+                spinBtn.disabled = false;
+                spinBtn.className = 'w-full py-4 rounded-xl text-xl font-bold text-white shadow-lg transition-all bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98]';
+                
+                items.forEach((item, index) => {
+                    const span = document.createElement('span');
+                    span.className = 'inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-800 text-sm';
+                    span.innerHTML = `
+                        ${item}
+                        <button type="button" class="ml-2 text-gray-400 hover:text-red-500 focus:outline-none" onclick="removeItem(${index})" ${isSpinning ? 'disabled' : ''}>×</button>
+                    `;
+                    itemList.appendChild(span);
+                });
+            }
+            drawRoulette();
+        }
+
+        // 메뉴 삭제 함수
+        window.removeItem = function(index) {
+            if (isSpinning) return;
+            items.splice(index, 1);
+            renderItems();
+            // 룰렛 초기화
+            rotation = 0;
+            canvas.style.transition = 'none';
+            canvas.style.transform = `rotate(0deg)`;
+            resetResult();
+        };
+
+        // 결과 영역 초기화
+        function resetResult() {
+            resultArea.innerHTML = '<div class="text-gray-500 text-lg">가운데 돌리기 버튼을 눌러주세요</div>';
+        }
+
+        // 메뉴 추가 이벤트
+        addForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (isSpinning) return;
+
+            const value = itemInput.value.trim();
+            if (!value) return;
+
+            if (items.includes(value)) {
+                showMessage('이미 있는 메뉴입니다.');
+                return;
+            }
+
+            items.push(value);
+            itemInput.value = '';
+            renderItems();
+        });
+
+        // 입력창 상태 관리 (돌아가는 중에는 비활성화)
+        itemInput.addEventListener('input', () => {
+            addBtn.disabled = !itemInput.value.trim() || isSpinning;
+        });
+
+        // 룰렛 돌리기 로직
+        spinBtn.addEventListener('click', () => {
+            if (items.length === 0 || isSpinning) return;
+
+            isSpinning = true;
+            spinBtn.textContent = '돌아가는 중...';
+            spinBtn.className = 'w-full py-4 rounded-xl text-xl font-bold text-white shadow-lg transition-all bg-gray-400 cursor-not-allowed';
+            itemInput.disabled = true;
+            addBtn.disabled = true;
+            
+            resultArea.innerHTML = '<div class="text-gray-500 text-xl animate-pulse">두구두구두구...</div>';
+
+            // 삭제 버튼 비활성화 렌더링
+            renderItems();
+
+            // 최소 5바퀴(1800도) 이상 돌고 랜덤으로 멈춤
+            const spinDegrees = Math.floor(Math.random() * 360) + 1800;
+            rotation += spinDegrees;
+
+            canvas.classList.add('spinning');
+            canvas.style.transform = `rotate(${rotation}deg)`;
+        });
+
+        // 룰렛이 멈췄을 때 결과 계산
+        canvas.addEventListener('transitionend', () => {
+            if (!isSpinning) return; // 중복 실행 방지
+            
+            isSpinning = false;
+            spinBtn.textContent = '룰렛 돌리기!';
+            spinBtn.className = 'w-full py-4 rounded-xl text-xl font-bold text-white shadow-lg transition-all bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98]';
+            itemInput.disabled = false;
+            addBtn.disabled = !itemInput.value.trim();
+
+            const actualRotation = rotation % 360;
+            const sliceAngle = 360 / items.length;
+            // 위쪽(12시 방향)에서 당첨을 판별하기 위한 계산
+            const winningIndex = Math.floor((360 - actualRotation) / sliceAngle) % items.length;
+            
+            const result = items[winningIndex];
+
+            resultArea.innerHTML = `
+                <div class="animate-bounce bg-yellow-100 border-2 border-yellow-400 text-yellow-800 px-6 py-2 rounded-full text-2xl font-bold shadow-sm">
+                    🎉 ${result} 당첨! 🎉
+                </div>
+            `;
+
+            // 삭제 버튼 다시 활성화 렌더링
+            renderItems();
+        });
+
+        // 초기 화면 렌더링
+        renderItems();
+
+    </script>
+</body>
+</html>
